@@ -1,0 +1,9 @@
+{
+  "name": "RuralHealth Connect",
+  "description": "A healthcare platform for frontline workers in rural areas featuring AI diagnostics, voice input, and offline sync.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

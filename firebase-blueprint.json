@@ -1,0 +1,94 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user information and roles (Health Worker or Doctor).",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string", "enum": ["worker", "doctor"] },
+        "language": { "type": "string", "enum": ["en", "hi", "mr"] },
+        "village": { "type": "string", "description": "Assigned village for workers" },
+        "specialization": { "type": "string", "description": "Medical specialization for doctors" }
+      },
+      "required": ["uid", "name", "email", "role", "language"]
+    },
+    "Patient": {
+      "title": "Patient",
+      "description": "Stores patient records collected by health workers.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "age": { "type": "integer" },
+        "gender": { "type": "string", "enum": ["male", "female", "other"] },
+        "contact": { "type": "string" },
+        "village": { "type": "string" },
+        "medicalHistory": { "type": "string" },
+        "vitals": {
+          "type": "object",
+          "properties": {
+            "temp": { "type": "number" },
+            "bp": { "type": "string" },
+            "pulse": { "type": "integer" },
+            "weight": { "type": "number" }
+          }
+        },
+        "workerId": { "type": "string", "description": "UID of the health worker who added the patient" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "age", "gender", "village", "workerId"]
+    },
+    "HealthCase": {
+      "title": "Health Case",
+      "description": "Stores specific medical cases/consultations for patients.",
+      "type": "object",
+      "properties": {
+        "patientId": { "type": "string" },
+        "workerId": { "type": "string" },
+        "symptoms": { "type": "string" },
+        "voiceNoteUrl": { "type": "string" },
+        "aiAnalysis": { "type": "string" },
+        "skinConditionImage": { "type": "string" },
+        "skinAnalysis": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "reviewed", "referred"] },
+        "doctorGuidance": { "type": "string" },
+        "doctorId": { "type": "string" },
+        "referralHospital": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["patientId", "workerId", "symptoms", "status", "timestamp"]
+    },
+    "Hospital": {
+      "title": "Hospital",
+      "description": "List of hospitals for referrals.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "specialists": { "type": "array", "items": { "type": "string" } }
+      },
+      "required": ["name", "location", "specialists"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents."
+    },
+    "/patients/{patientId}": {
+      "schema": "Patient",
+      "description": "Patient record documents."
+    },
+    "/cases/{caseId}": {
+      "schema": "HealthCase",
+      "description": "Medical case documents."
+    },
+    "/hospitals/{hospitalId}": {
+      "schema": "Hospital",
+      "description": "Hospital referral directory."
+    }
+  }
+}
