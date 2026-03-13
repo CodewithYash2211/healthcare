@@ -1,30 +1,15 @@
 /**
- * Local data store — replaces Firebase Firestore entirely.
- * All data is persisted in localStorage so it survives page refreshes.
+ * Local data store — rebuilt as a Firestore real-time sync layer.
+ * Replaces pure localStorage to support Firebase cloud persistence natively.
  */
 
 import { Patient, HealthCase } from './types';
+import { db } from './firebase';
+import { collection, onSnapshot, doc, setDoc, updateDoc } from 'firebase/firestore';
 
-// ── Storage keys ──────────────────────────────────────────────────────────────
-const PATIENTS_KEY = 'hc_patients';
-const CASES_KEY = 'hc_cases';
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function load<T>(key: string): T[] {
-  try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function save<T>(key: string, data: T[]) {
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
-function uid() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2);
-}
+// ── In-Memory State ───────────────────────────────────────────────────────────
+let patients: Patient[] = [];
+let cases: HealthCase[] = [];
 
 // ── Simple pub-sub so pages can react to changes ──────────────────────────────
 type Listener = () => void;
@@ -39,60 +24,95 @@ export function subscribe(fn: Listener): () => void {
   return () => listeners.delete(fn);
 }
 
+// ── Firestore Listeners ───────────────────────────────────────────────────────
+let isInitialized = false;
+
+export function initStore() {
+  if (isInitialized) return;
+  isInitialized = true;
+
+  try {
+    onSnapshot(collection(db, 'patients'), (snapshot) => {
+      patients = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Patient));
+      notify();
+    }, (error) => console.error("Firestore patients sync error:", error));
+
+    onSnapshot(collection(db, 'reports'), (snapshot) => {
+      cases = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as HealthCase));
+      notify();
+    }, (error) => console.error("Firestore cases sync error:", error));
+  } catch (error) {
+    console.error("Firestore initialization error:", error);
+  }
+}
+
+// Auto-initialize when imported
+initStore();
+
+
 // ── Patients ──────────────────────────────────────────────────────────────────
 export function getPatients(): Patient[] {
-  return load<Patient>(PATIENTS_KEY);
+  return patients;
 }
 
 export function addPatient(data: Omit<Patient, 'id' | 'createdAt' | 'updatedAt'>): Patient {
-  const patients = getPatients();
+  const newRef = doc(collection(db, 'patients'));
   const newPatient: Patient = {
     ...data,
-    id: uid(),
+    id: newRef.id,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  patients.push(newPatient);
-  save(PATIENTS_KEY, patients);
+  
+  // Optimistic UI update
+  patients = [...patients, newPatient];
   notify();
+  
+  // Fire and forget Firestore upload
+  setDoc(newRef, newPatient).catch(console.error);
   return newPatient;
 }
 
 export function updatePatient(id: string, data: Partial<Patient>) {
-  const patients = getPatients().map(p =>
-    p.id === id ? { ...p, ...data, updatedAt: new Date().toISOString() } : p
-  );
-  save(PATIENTS_KEY, patients);
+  // Optimistic UI update
+  patients = patients.map(p => p.id === id ? { ...p, ...data, updatedAt: new Date().toISOString() } : p);
   notify();
+  
+  const ref = doc(db, 'patients', id);
+  updateDoc(ref, { ...data, updatedAt: new Date().toISOString() }).catch(console.error);
 }
 
 export function getPatientById(id: string): Patient | undefined {
-  return getPatients().find(p => p.id === id);
+  return patients.find(p => p.id === id);
 }
 
 // ── Cases ─────────────────────────────────────────────────────────────────────
 export function getCases(): HealthCase[] {
-  return load<HealthCase>(CASES_KEY);
+  return cases;
 }
 
 export function addCase(data: Omit<HealthCase, 'id' | 'timestamp'>): HealthCase {
-  const cases = getCases();
+  const newRef = doc(collection(db, 'reports'));
   const newCase: HealthCase = {
     ...data,
-    id: uid(),
-    syncStatus: 'pending',
+    id: newRef.id,
+    syncStatus: 'synced', // Firestore handles offline queuing implicitly
     timestamp: new Date().toISOString(),
   };
-  cases.push(newCase);
-  save(CASES_KEY, cases);
+  
+  // Optimistic UI update
+  cases = [...cases, newCase];
   notify();
+  
+  setDoc(newRef, newCase).catch(console.error);
   return newCase;
 }
 
 export function updateCase(id: string, data: Partial<HealthCase>) {
-  const cases = getCases().map(c =>
-    c.id === id ? { ...c, ...data } : c
-  );
-  save(CASES_KEY, cases);
+  // Optimistic UI update
+  cases = cases.map(c => c.id === id ? { ...c, ...data } : c);
   notify();
+  
+  const ref = doc(db, 'reports', id);
+  updateDoc(ref, data).catch(console.error);
 }

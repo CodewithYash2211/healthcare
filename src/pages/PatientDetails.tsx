@@ -5,7 +5,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button, Card, Input } from '../components/UI';
 import { getPatientById, getCases, updatePatient, addCase, subscribe } from '../localStore';
 import { analyzeSymptoms } from '../services/gemini';
-import { addSyncTask } from '../utils/syncManager';
 import { Patient, HealthCase } from '../types';
 import {
   ArrowLeft,
@@ -103,13 +102,6 @@ export const PatientDetails = () => {
       aiAnalysis: JSON.stringify(aiResult),
       status: !navigator.onLine ? 'pending_sync' : 'pending',
     };
-
-    if (!navigator.onLine) {
-      addSyncTask({
-        type: 'SAVE_RECORD',
-        payload: caseData
-      });
-    }
 
     addCase(caseData as any);
     setCaseSaved(true);
