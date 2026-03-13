@@ -1,7 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { onAuthStateChanged, signOut, User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, googleProvider, signInWithPopup, handleFirestoreError, OperationType } from '../firebase';
 import { UserProfile, UserRole } from '../types';
 
 interface AuthContextType {
@@ -13,75 +10,41 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const STORAGE_KEY = 'healthcare_user';
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          if (userDoc.exists()) {
-            setUser(userDoc.data() as UserProfile);
-          } else {
-            // User exists in Auth but not in Firestore yet
-            // This will be handled in the login function for new users
-            setUser(null);
-          }
-        } catch (error) {
-          handleFirestoreError(error, OperationType.GET, `users/${firebaseUser.uid}`);
-        }
-      } else {
-        setUser(null);
+    // Restore session from localStorage on mount
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        setUser(JSON.parse(stored));
       }
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    } catch {
+      // ignore parse errors
+    }
+    setLoading(false);
   }, []);
 
   const login = async (role: UserRole) => {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const firebaseUser = result.user;
-
-      const userDocRef = doc(db, 'users', firebaseUser.uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (!userDoc.exists()) {
-        const newUser: UserProfile = {
-          uid: firebaseUser.uid,
-          name: firebaseUser.displayName || 'Anonymous',
-          email: firebaseUser.email || '',
-          role,
-          language: 'en',
-        };
-
-        if (role === 'worker') {
-          newUser.village = 'Default Village';
-        } else if (role === 'doctor') {
-          newUser.specialization = 'General Physician';
-        }
-
-        await setDoc(userDocRef, newUser);
-        setUser(newUser);
-      } else {
-        setUser(userDoc.data() as UserProfile);
-      }
-    } catch (error) {
-      // Check if it's a Firestore error or Auth error
-      if (error instanceof Error && (error.message.includes('permission') || error.message.includes('firestore'))) {
-        handleFirestoreError(error, OperationType.WRITE, 'users');
-      } else {
-        console.error('Login error:', error);
-        throw error;
-      }
-    }
+    const newUser: UserProfile = {
+      uid: 'local-user',
+      name: role === 'doctor' ? 'Dr. Local User' : 'Health Worker',
+      email: 'user@local.app',
+      role,
+      language: 'en',
+      ...(role === 'worker' ? { village: 'Default Village' } : {}),
+      ...(role === 'doctor' ? { specialization: 'General Physician' } : {}),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(newUser));
+    setUser(newUser);
   };
 
   const logout = async () => {
-    await signOut(auth);
+    localStorage.removeItem(STORAGE_KEY);
     setUser(null);
   };
 
@@ -97,4 +60,3 @@ export const useAuth = () => {
   if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
-

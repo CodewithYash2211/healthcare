@@ -27,6 +27,7 @@ export interface Patient {
   workerId: string;
   createdAt: any;
   updatedAt: any;
+  location?: { lat: number; lng: number };
 }
 
 export interface HealthCase {
@@ -38,10 +39,11 @@ export interface HealthCase {
   aiAnalysis?: string;
   skinConditionImage?: string;
   skinAnalysis?: string;
-  status: 'pending' | 'reviewed' | 'referred';
+  status: 'pending' | 'reviewed' | 'referred' | 'pending_sync';
   doctorGuidance?: string;
   doctorId?: string;
   referralHospital?: string;
+  syncStatus?: 'synced' | 'pending';
   timestamp: any;
 }
 

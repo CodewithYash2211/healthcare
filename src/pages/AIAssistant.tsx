@@ -3,16 +3,15 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button, Card, Input } from '../components/UI';
 import { analyzeSymptoms } from '../services/gemini';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
+import { getPatients, addCase, subscribe } from '../localStore';
 import { Patient } from '../types';
-import { 
-  Mic, 
-  MicOff, 
-  Send, 
-  Bot, 
-  User, 
-  Loader2, 
+import {
+  Mic,
+  MicOff,
+  Send,
+  Bot,
+  User,
+  Loader2,
   AlertTriangle,
   Save,
   CheckCircle2
@@ -42,24 +41,17 @@ export const AIAssistant = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const fetchPatients = async () => {
-      if (!user) return;
-      try {
-        const q = query(collection(db, 'patients'), where('workerId', '==', user.uid));
-        const snapshot = await getDocs(q);
-        setPatients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Patient)));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.LIST, 'patients');
-      }
+    const refresh = () => {
+      const all = getPatients();
+      setPatients(user?.role === 'worker' ? all.filter(p => p.workerId === user.uid) : all);
     };
-    fetchPatients();
+    refresh();
+    return subscribe(refresh);
   }, [user]);
 
-  const scrollToBottom = () => {
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
-  useEffect(scrollToBottom, [messages]);
+  }, [messages]);
 
   const handleSend = async (text?: string) => {
     const content = text || input;
@@ -73,47 +65,39 @@ export const AIAssistant = () => {
 
     try {
       const analysis = await analyzeSymptoms(content, language);
-      const assistantMsg: Message = {
+      setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: analysis.analysis,
         analysis
-      };
-      setMessages(prev => [...prev, assistantMsg]);
+      }]);
     } catch (error) {
       console.error(error);
-      setMessages(prev => [...prev, { 
-        id: (Date.now() + 1).toString(), 
-        role: 'assistant', 
-        content: t('analysisError') 
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: t('analysisError')
       }]);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleSaveCase = async (analysis: any, symptoms: string) => {
+  const handleSaveCase = (analysis: any, symptoms: string) => {
     if (!selectedPatientId || !user) {
       alert(t('selectPatientFirst'));
       return;
     }
-
     setIsSaving(true);
-    try {
-      const docRef = await addDoc(collection(db, 'cases'), {
-        patientId: selectedPatientId,
-        workerId: user.uid,
-        symptoms,
-        aiAnalysis: JSON.stringify(analysis),
-        status: 'pending',
-        timestamp: serverTimestamp(),
-      });
-      setSavedCaseId(docRef.id);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'cases');
-    } finally {
-      setIsSaving(false);
-    }
+    const saved = addCase({
+      patientId: selectedPatientId,
+      workerId: user.uid,
+      symptoms,
+      aiAnalysis: JSON.stringify(analysis),
+      status: 'pending',
+    });
+    setSavedCaseId(saved.id);
+    setIsSaving(false);
   };
 
   const startRecording = () => {
@@ -121,12 +105,10 @@ export const AIAssistant = () => {
       alert(t('speechNotSupported'));
       return;
     }
-
     const recognition = new (window as any).webkitSpeechRecognition();
     recognition.continuous = false;
     recognition.interimResults = false;
     recognition.lang = language === 'hi' ? 'hi-IN' : language === 'mr' ? 'mr-IN' : 'en-US';
-
     recognition.onstart = () => setIsRecording(true);
     recognition.onend = () => setIsRecording(false);
     recognition.onresult = (event: any) => {
@@ -134,19 +116,18 @@ export const AIAssistant = () => {
       setInput(transcript);
       handleSend(transcript);
     };
-
     recognition.start();
   };
 
   return (
     <div className="h-[calc(100vh-12rem)] flex flex-col gap-4">
       <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent tracking-tight flex items-center gap-2 mb-1">
           <Bot className="w-8 h-8 text-emerald-600" />
           {t('aiAssistant')}
         </h1>
         <div className="flex items-center gap-2">
-          <select 
+          <select
             value={selectedPatientId}
             onChange={(e) => setSelectedPatientId(e.target.value)}
             className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
@@ -176,13 +157,13 @@ export const AIAssistant = () => {
                 </div>
                 <div className="space-y-2">
                   <div className={`p-4 rounded-2xl text-sm ${
-                    msg.role === 'user' 
-                      ? 'bg-emerald-600 text-white rounded-tr-none' 
+                    msg.role === 'user'
+                      ? 'bg-emerald-600 text-white rounded-tr-none'
                       : 'bg-slate-100 text-slate-800 rounded-tl-none'
                   }`}>
                     {msg.content}
                   </div>
-                  
+
                   {msg.analysis && (
                     <motion.div
                       initial={{ opacity: 0, y: 10 }}
@@ -191,24 +172,23 @@ export const AIAssistant = () => {
                     >
                       <div className="flex items-center justify-between">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase flex items-center gap-1 ${
-                          msg.analysis.urgency === 'High' ? 'bg-red-100 text-red-700' : 
-                          msg.analysis.urgency === 'Medium' ? 'bg-amber-100 text-amber-700' : 
+                          msg.analysis.urgency === 'High' ? 'bg-red-100 text-red-700' :
+                          msg.analysis.urgency === 'Medium' ? 'bg-amber-100 text-amber-700' :
                           'bg-emerald-100 text-emerald-700'
                         }`}>
                           <AlertTriangle className="w-3 h-3" />
                           {msg.analysis.urgency} {t('urgency')}
                         </span>
-                        
                         {savedCaseId ? (
                           <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
                             <CheckCircle2 className="w-3 h-3" /> {t('caseSaved')}
                           </span>
                         ) : (
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
+                          <Button
+                            size="sm"
+                            variant="ghost"
                             className="h-7 text-[10px] gap-1"
-                            onClick={() => handleSaveCase(msg.analysis, messages[messages.indexOf(msg)-1]?.content || '')}
+                            onClick={() => handleSaveCase(msg.analysis, messages[messages.indexOf(msg) - 1]?.content || '')}
                             disabled={isSaving || !selectedPatientId}
                           >
                             <Save className="w-3 h-3" />
@@ -234,11 +214,28 @@ export const AIAssistant = () => {
             </motion.div>
           ))}
           {isAnalyzing && (
-            <div className="flex justify-start">
-              <div className="bg-slate-100 p-4 rounded-2xl rounded-tl-none">
-                <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex justify-start"
+            >
+              <div className="flex gap-3 max-w-[80%]">
+                <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
+                  <Bot className="w-5 h-5 text-emerald-600 animate-pulse" />
+                </div>
+                <div className="bg-white/80 backdrop-blur-sm border border-slate-100 p-4 rounded-2xl rounded-tl-none shadow-[0_4px_12px_rgba(0,0,0,0.02)] space-y-3 min-w-[200px]">
+                  <div className="flex gap-1.5 items-center h-4 mb-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="h-2 w-full bg-slate-100 rounded-full animate-pulse" />
+                    <div className="h-2 w-4/5 bg-slate-100 rounded-full animate-pulse" />
+                  </div>
+                </div>
               </div>
-            </div>
+            </motion.div>
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -274,4 +271,3 @@ export const AIAssistant = () => {
     </div>
   );
 };
-

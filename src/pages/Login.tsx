@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Button, Input, Card } from '../components/UI';
+import { Button, Card } from '../components/UI';
 import { Stethoscope, User, UserCog } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -65,12 +65,11 @@ export const Login = () => {
               </button>
             </div>
 
-            <Button 
-              onClick={handleLogin} 
-              className="w-full py-6 text-lg flex gap-3"
+            <Button
+              onClick={handleLogin}
+              className="w-full py-6 text-lg"
               disabled={isLoggingIn}
             >
-              <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
               {isLoggingIn ? t('loggingIn') : `${t('loginAs')} ${t(role)}`}
             </Button>
           </div>
@@ -83,4 +82,3 @@ export const Login = () => {
     </div>
   );
 };
-

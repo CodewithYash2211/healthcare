@@ -1,16 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button, Card } from '../components/UI';
 import { detectSkinDisease } from '../services/gemini';
-import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, onSnapshot, addDoc, serverTimestamp, query, where } from 'firebase/firestore';
+import { getPatients, addCase, updateCase, subscribe } from '../localStore';
 import { Patient } from '../types';
-import { 
-  Camera, 
-  Upload, 
-  AlertCircle, 
-  CheckCircle2, 
+import {
+  Camera,
+  Upload,
+  AlertCircle,
+  CheckCircle2,
   ArrowRight,
   Hospital,
   User,
@@ -29,29 +28,18 @@ export const SkinCheck = () => {
   const [selectedPatientId, setSelectedPatientId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [savedCaseId, setSavedCaseId] = useState<string | null>(null);
+  const [referSuccess, setReferSuccess] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
-
-    let q;
-    if (user.role === 'worker') {
-      q = query(collection(db, 'patients'), where('workerId', '==', user.uid));
-    } else {
-      q = query(collection(db, 'patients'));
-    }
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setPatients(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Patient)));
-    }, (error) => handleFirestoreError(error, OperationType.LIST, 'patients'));
-
-    return () => unsubscribe();
+    const refresh = () => {
+      const all = getPatients();
+      setPatients(user?.role === 'worker' ? all.filter(p => p.workerId === user.uid) : all);
+    };
+    refresh();
+    return subscribe(refresh);
   }, [user]);
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    processFile(file);
-  };
 
   const processFile = (file: File | undefined) => {
     if (file) {
@@ -65,20 +53,13 @@ export const SkinCheck = () => {
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => processFile(e.target.files?.[0]);
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = () => setIsDragging(false);
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    processFile(file);
+    processFile(e.dataTransfer.files?.[0]);
   };
 
   const handleAnalyze = async () => {
@@ -95,36 +76,36 @@ export const SkinCheck = () => {
     }
   };
 
-  const handleSaveCase = async () => {
+  const handleSaveCase = () => {
     if (!selectedPatientId || !result || !user) return;
     setIsSaving(true);
-    try {
-      await addDoc(collection(db, 'cases'), {
-        patientId: selectedPatientId,
-        workerId: user.uid,
-        symptoms: `Skin Condition: ${result.condition}. ${result.description}`,
-        aiAnalysis: `AI detected ${result.condition}. Recommendations: ${result.recommendations.join(', ')}`,
-        status: 'pending',
-        timestamp: serverTimestamp(),
-        type: 'skin_check',
-        imageUrl: image // In a real app, upload to Firebase Storage first
-      });
-      setSaveSuccess(true);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'cases');
-    } finally {
-      setIsSaving(false);
-    }
+    const saved = addCase({
+      patientId: selectedPatientId,
+      workerId: user.uid,
+      symptoms: `Skin Condition: ${result.condition}. ${result.description}`,
+      aiAnalysis: `AI detected ${result.condition}. Recommendations: ${result.recommendations.join(', ')}`,
+      status: 'pending',
+      type: 'skin_check',
+    } as any);
+    setSavedCaseId(saved.id);
+    setSaveSuccess(true);
+    setIsSaving(false);
+  };
+
+  const handleRefer = (hospitalName: string) => {
+    if (!savedCaseId) return;
+    updateCase(savedCaseId, { status: 'referred', referralHospital: hospitalName });
+    setReferSuccess(true);
   };
 
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent tracking-tight flex items-center gap-2 mb-1">
           <Camera className="w-8 h-8 text-emerald-600" />
           {t('skinCheck')}
         </h1>
-        <p className="text-slate-500">{t('skinCheckDescription')}</p>
+        <p className="text-slate-500 font-medium">{t('skinCheckDescription')}</p>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -134,7 +115,7 @@ export const SkinCheck = () => {
               <User className="w-4 h-4" />
               {t('patientSelection')}
             </label>
-            <select 
+            <select
               className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition-all"
               value={selectedPatientId}
               onChange={(e) => setSelectedPatientId(e.target.value)}
@@ -146,7 +127,7 @@ export const SkinCheck = () => {
             </select>
           </div>
 
-          <div 
+          <div
             className={`aspect-square rounded-2xl bg-slate-50 border-2 border-dashed transition-all flex flex-col items-center justify-center overflow-hidden relative group ${
               isDragging ? 'border-emerald-500 bg-emerald-50/50' : 'border-slate-200'
             }`}
@@ -179,29 +160,16 @@ export const SkinCheck = () => {
             )}
           </div>
 
-          <Button 
-            className="w-full py-6 text-lg" 
-            disabled={!image || isAnalyzing}
-            onClick={handleAnalyze}
-          >
+          <Button className="w-full py-6 text-lg" disabled={!image || isAnalyzing} onClick={handleAnalyze}>
             {isAnalyzing ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                {t('analyzing')}
-              </>
-            ) : (
-              t('startSkinAnalysis')
-            )}
+              <><Loader2 className="w-5 h-5 animate-spin mr-2" />{t('analyzing')}</>
+            ) : t('startSkinAnalysis')}
           </Button>
         </Card>
 
         <div className="space-y-6">
           {result ? (
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="space-y-6"
-            >
+            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-6">
               <Card className="p-6 border-emerald-100 bg-emerald-50/30">
                 <div className="flex items-start gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
@@ -220,9 +188,7 @@ export const SkinCheck = () => {
                   <h4 className="font-bold text-slate-900">{t('recommendation')}</h4>
                 </div>
                 <p className="text-sm text-slate-700 mb-4">
-                  {result.specialistRequired 
-                    ? t('specialistRecommended')
-                    : t('manageableCare')}
+                  {result.specialistRequired ? t('specialistRecommended') : t('manageableCare')}
                 </p>
                 <div className="space-y-2 mb-6">
                   {result.recommendations.map((rec: string, i: number) => (
@@ -232,12 +198,7 @@ export const SkinCheck = () => {
                     </div>
                   ))}
                 </div>
-
-                <Button 
-                  className="w-full gap-2" 
-                  disabled={!selectedPatientId || isSaving || saveSuccess}
-                  onClick={handleSaveCase}
-                >
+                <Button className="w-full gap-2" disabled={!selectedPatientId || isSaving || saveSuccess} onClick={handleSaveCase}>
                   {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : saveSuccess ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
                   {saveSuccess ? t('caseSaved') : t('saveToRecord')}
                 </Button>
@@ -252,15 +213,38 @@ export const SkinCheck = () => {
                     <Hospital className="w-5 h-5 text-emerald-400" />
                     <h4 className="font-bold">{t('nearbySpecialists')}</h4>
                   </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center p-3 rounded-xl bg-white/10">
-                      <div>
-                        <p className="text-sm font-bold">District General Hospital</p>
-                        <p className="text-xs text-white/60">Dermatology Dept • 12km away</p>
-                      </div>
-                      <Button size="sm" variant="primary" className="h-8">{t('refer')}</Button>
+                  {referSuccess ? (
+                    <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/20 text-emerald-300 text-sm font-semibold">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Patient referred successfully!
                     </div>
-                  </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {[
+                        { name: 'District General Hospital', dept: 'Dermatology Dept', dist: '12km' },
+                        { name: 'City Skin Clinic', dept: 'Dermatology', dist: '18km' },
+                      ].map(h => (
+                        <div key={h.name} className="flex justify-between items-center p-3 rounded-xl bg-white/10">
+                          <div>
+                            <p className="text-sm font-bold">{h.name}</p>
+                            <p className="text-xs text-white/60">{h.dept} • {h.dist} away</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="primary"
+                            className="h-8"
+                            disabled={!saveSuccess}
+                            onClick={() => handleRefer(h.name)}
+                          >
+                            {t('refer')}
+                          </Button>
+                        </div>
+                      ))}
+                      {!saveSuccess && (
+                        <p className="text-xs text-white/50 text-center mt-2">Save the case first to enable referral</p>
+                      )}
+                    </div>
+                  )}
                 </Card>
               )}
             </motion.div>
@@ -275,4 +259,3 @@ export const SkinCheck = () => {
     </div>
   );
 };
-
