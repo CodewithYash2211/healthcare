@@ -42,8 +42,8 @@ export const Reports = () => {
   };
 
   const filteredCases = cases.filter(c => 
-    c.patient?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.symptoms.toLowerCase().includes(searchTerm.toLowerCase())
+    (c.patient?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (c.symptoms || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -75,9 +75,16 @@ export const Reports = () => {
 
       <div className="space-y-4">
         {filteredCases.map((c) => {
-          const aiData = c.aiAnalysis ? JSON.parse(c.aiAnalysis) : null;
+          let aiData = null;
+          try {
+            aiData = c.aiAnalysis ? JSON.parse(c.aiAnalysis) : null;
+          } catch (e) {
+            // If it's not valid JSON (e.g. skin check description), use it as a fallback structure
+            aiData = { urgency: 'Medium', analysis: c.aiAnalysis };
+          }
+          
           return (
-            <Card key={c.id} className="p-0 overflow-hidden hover:border-emerald-200 transition-colors cursor-pointer group" onClick={() => navigate(`/cases/${c.id}`)}>
+            <Card key={c.id} className="p-0 overflow-hidden hover:border-emerald-200 transition-colors cursor-pointer group" onClick={() => navigate(`/patients/${c.patientId}`)}>
               <div className="flex flex-col sm:flex-row divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
                 {/* Info Block (Left) */}
                 <div className="flex-1 p-5 md:p-6 flex flex-col md:flex-row gap-4 md:items-center">
@@ -108,8 +115,8 @@ export const Reports = () => {
                       </span>
                    </div>
                    <div className="text-right">
-                     <span className="text-xs font-medium text-slate-400 block">{new Date(c.timestamp).toLocaleDateString()}</span>
-                     <span className="text-xs font-semibold text-slate-500">{new Date(c.timestamp).toLocaleTimeString()}</span>
+                     <span className="text-xs font-medium text-slate-400 block">{c.timestamp ? new Date(c.timestamp).toLocaleDateString() : 'N/A'}</span>
+                     <span className="text-xs font-semibold text-slate-500">{c.timestamp ? new Date(c.timestamp).toLocaleTimeString() : ''}</span>
                    </div>
                 </div>
                 

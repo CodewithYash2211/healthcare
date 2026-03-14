@@ -1,17 +1,26 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 const getAI = () => {
-  if (!process.env.GEMINI_API_KEY) {
-    throw new Error("GEMINI_API_KEY is not defined");
+  // Vite exposes env variables via import.meta.env, NOT process.env
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("VITE_GEMINI_API_KEY is not defined in .env.local");
   }
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  return new GoogleGenAI({ apiKey });
 };
 
 export const analyzeSymptoms = async (symptoms: string, language: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: `Analyze the following symptoms for a patient in a rural setting. Provide potential conditions, urgency level (Low, Medium, High), and recommended next steps. Respond in ${language}. Symptoms: ${symptoms}`,
+    model: "gemini-2.5-flash",
+    contents: `You are a medical assistant helping rural health workers in India. 
+Analyze the following patient symptoms and provide:
+1. Possible medical conditions
+2. Urgency level (Low, Medium, or High)
+3. Recommended next steps for the health worker
+
+Respond in ${language === 'hi' ? 'Hindi' : language === 'mr' ? 'Marathi' : 'English'}.
+Symptoms: ${symptoms}`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -26,13 +35,15 @@ export const analyzeSymptoms = async (symptoms: string, language: string) => {
     },
   });
 
-  return JSON.parse(response.text);
+  const text = response.text;
+  if (!text) throw new Error("Empty response from Gemini");
+  return JSON.parse(text);
 };
 
 export const detectSkinDisease = async (base64Image: string, language: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-1.5-flash",
     contents: {
       parts: [
         {
@@ -42,7 +53,7 @@ export const detectSkinDisease = async (base64Image: string, language: string) =
           },
         },
         {
-          text: `Analyze this skin condition image. Identify possible diseases, provide a brief description, and recommend if a specialist visit is necessary. Respond in ${language}.`,
+          text: `Analyze this skin condition image. Identify possible diseases, provide a brief description, and recommend if a specialist visit is necessary. Respond in ${language === 'hi' ? 'Hindi' : language === 'mr' ? 'Marathi' : 'English'}.`,
         },
       ],
     },
@@ -61,16 +72,15 @@ export const detectSkinDisease = async (base64Image: string, language: string) =
     },
   });
 
-  return JSON.parse(response.text);
+  const text = response.text;
+  if (!text) throw new Error("Empty response from Gemini");
+  return JSON.parse(text);
 };
 
 export const transcribeSymptoms = async (audioBase64: string) => {
-  // Note: Using Gemini for audio transcription if native audio model is available
-  // For now, we'll assume the worker uses the browser's Web Speech API for real-time STT,
-  // but this service can be used for post-processing or translation.
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-1.5-flash",
     contents: {
       parts: [
         {

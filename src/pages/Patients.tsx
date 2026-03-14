@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
 import { Button, Card, Input } from '../components/UI';
-import { getPatients, addPatient, subscribe } from '../localStore';
+import { usePatients } from '../contexts/PatientContext';
 import { Patient } from '../types';
 import { 
   Users, 
@@ -36,17 +36,14 @@ export const Patients = () => {
     medicalHistory: ''
   });
 
+  const { patients: globalPatients, addPatient } = usePatients();
+
   useEffect(() => {
     const refresh = () => {
-      const all = getPatients();
-      const filtered = user?.role === 'worker'
-        ? all.filter(p => p.workerId === user.uid)
-        : all;
-      setPatients(filtered.sort((a, b) => a.name.localeCompare(b.name)));
+      setPatients([...globalPatients].sort((a, b) => a.name.localeCompare(b.name)));
     };
     refresh();
-    return subscribe(refresh);
-  }, [user]);
+  }, [globalPatients]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -58,21 +55,32 @@ export const Patients = () => {
 
   const handleAddPatient = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPatient.name || !newPatient.age || !newPatient.village) return;
+    if (!newPatient.name || !newPatient.age || !newPatient.village || !user) return;
     setIsSaving(true);
-    addPatient({
-      name: newPatient.name,
-      age: parseInt(newPatient.age),
-      gender: newPatient.gender.toLowerCase() as 'male' | 'female' | 'other',
-      village: newPatient.village,
-      contact: newPatient.contact,
-      medicalHistory: newPatient.medicalHistory,
-      workerId: user!.uid,
-      vitals: {},
-    });
-    setShowAddModal(false);
-    setNewPatient({ name: '', age: '', gender: 'Male', village: '', contact: '', medicalHistory: '' });
-    setIsSaving(false);
+    
+    try {
+      await addPatient({
+        name: newPatient.name,
+        age: parseInt(newPatient.age),
+        gender: newPatient.gender.toLowerCase() as any,
+        contact: newPatient.contact,
+        village: newPatient.village,
+        medicalHistory: newPatient.medicalHistory || 'Initial Consultation',
+        vitals: {},
+        workerId: user.uid,
+        location: {
+          lat: 18.5204 + (Math.random() - 0.5) * 0.2, // Random location near Pune
+          lng: 73.8567 + (Math.random() - 0.5) * 0.2,
+        },
+      });
+
+      setShowAddModal(false);
+      setNewPatient({ name: '', age: '', gender: 'Male', village: '', contact: '', medicalHistory: '' });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const filteredPatients = patients.filter(p =>
@@ -122,19 +130,19 @@ export const Patients = () => {
             <Card className="p-6 hover:border-emerald-200 transition-all group">
               <div className="flex items-start justify-between mb-4">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl font-bold">
-                  {p.name[0]}
+                  {p.name?.[0] || '?'}
                 </div>
                 <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-emerald-500 transition-colors" />
               </div>
-              <h3 className="font-bold text-slate-900 text-lg mb-1">{p.name}</h3>
+              <h3 className="font-bold text-slate-900 text-lg mb-1">{p.name || 'Unknown'}</h3>
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <Calendar className="w-4 h-4" />
-                  {p.age} {t('years')} • {t(p.gender.toLowerCase())}
+                  {p.age || '--'} {t('years')} • {t((p.gender || 'other').toLowerCase())}
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-500">
                   <MapPin className="w-4 h-4" />
-                  {p.village}
+                  {p.village || 'N/A'}
                 </div>
               </div>
               {p.vitals?.temp && (
@@ -216,7 +224,7 @@ export const Patients = () => {
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700">{t('medicalHistory')}</label>
                 <textarea
-                  className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-emerald-500 outline-none min-h-[100px]"
+                  className="w-full border rounded-lg px-3 py-2 text-gray-800 bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 min-h-[100px]"
                   value={newPatient.medicalHistory}
                   onChange={(e) => setNewPatient(prev => ({ ...prev, medicalHistory: e.target.value }))}
                 />

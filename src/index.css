@@ -7,15 +7,9 @@
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 antialiased selection:bg-emerald-200 selection:text-emerald-900;
-    @apply dark:bg-slate-900 dark:text-slate-100 dark:selection:bg-emerald-800 dark:selection:text-emerald-100;
   }
   
-  html:not(.dark) body {
+  body {
     background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   }
-
-  html.dark body {
-    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  }
 }
-
